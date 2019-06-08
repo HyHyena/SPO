@@ -2,7 +2,6 @@ package enumerations;
 
 import java.util.HashMap;
 
-
 public enum LexemeEnum implements CompilerEnum {
     INT_TP(2),
     DOUBLE_TP(2),

@@ -4,8 +4,8 @@ import enumerations.CompilerEnum;
 import enumerations.LexemeEnum;
 import enumerations.ServiceEnum;
 import exceptions.CompileException;
-import implementations.CustomHashSet;
-import implementations.CustomList;
+import implementations.CHashSet;
+import implementations.CList;
 import implementations.Parsable;
 import lexer.Token;
 import lexer.Variable;
@@ -111,14 +111,14 @@ public class PolizCounter {
         CompilerEnum varType = getTokenType(token);
         if (type.equals(LIST_KW)) {
             if (varType.equals(INT_TP))
-                variable.setValue(new CustomList<Integer>());
+                variable.setValue(new CList<Integer>());
             else if (varType.equals(DOUBLE_TP))
-                variable.setValue(new CustomList<Double>());
+                variable.setValue(new CList<Double>());
         } else if (type.equals(HASH_SET_KW)) {
             if (varType.equals(INT_TP))
-                variable.setValue(new CustomHashSet<Integer>());
+                variable.setValue(new CHashSet<Integer>());
             else if (varType.equals(DOUBLE_TP))
-                variable.setValue(new CustomHashSet<Double>());
+                variable.setValue(new CHashSet<Double>());
         }
     }
 

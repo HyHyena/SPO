@@ -1,26 +1,25 @@
-import compiler.PolizCounter;
-import compiler.PolizGenerator;
+import compiler.*;
 import enumerations.ServiceEnum;
-import exceptions.CompileException;
-import exceptions.ParseException;
-import exceptions.TokenizeException;
+import exceptions.*;
 import lexer.*;
 import parser.Parser;
 
 public class Main {
 
-    public static void main(String[] args) throws CompileException {
+    public static void main(String[] args) {
         Lexer lexer = new Lexer();
         Parser parser = new Parser();
         PolizGenerator polizGenerator = new PolizGenerator();
         PolizCounter polizCounter = new PolizCounter();
         try {
-            lexer.tokenize("src/test.txt");
+            lexer.tokenize("src/prog.txt");
         } catch (TokenizeException e) {
             e.printStackTrace();
         }
         for (Token token : lexer.getTokens()) {
-            System.out.println(token.getType() + " " + token.getValue());
+            System.out.println("type: " + token.getType());
+            System.out.println("value: " + token.getValue());
+            System.out.println();
         }
         System.out.println();
         try {
@@ -39,16 +38,15 @@ public class Main {
             System.out.println(i++ + ": " + token.getType() + " " + token.getValue());
         }
         System.out.println();
-        for (Variable variable : polizGenerator.getTableOfNames().values()) {
+        /*for (Variable variable : polizGenerator.getTableOfNames().values()) {
             if (variable.getValueType().equals(ServiceEnum.LABEL)) {
                 System.out.println("Label: " + variable.getName() + " : " + variable.getValue());
             }
-        }
+        }*/
     try {
         polizCounter.count(polizGenerator.getPoliz(), polizGenerator.getTableOfNames());
-    }
-    catch (CompileException e){
+    } catch (CompileException e){
         e.getMessage();
-    }
+        }
     }
 }

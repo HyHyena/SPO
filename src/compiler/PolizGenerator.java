@@ -6,13 +6,14 @@ import enumerations.LexemeEnum;
 import enumerations.ServiceEnum;
 import lexer.Token;
 import lexer.Variable;
-import parser.ParseTree;
+import parser.AST;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Stack;
 
 public class PolizGenerator {
+    
     private ArrayList<Token> poliz;
     private Stack<Token> polizStack;
     private Stack<Variable> labelStack;
@@ -31,7 +32,7 @@ public class PolizGenerator {
         labelNum = 0;
     }
 
-    public void generate(ParseTree tree) {
+    public void generate(AST tree) {
         init();
         depthFirst(tree.getRoot());
         clearPolizStack();
@@ -41,8 +42,8 @@ public class PolizGenerator {
         return tableOfNames;
     }
 
-    private void depthFirst(ParseTree.Node parent) {
-        for (ParseTree.Node node : parent.getChildren()) {
+    private void depthFirst(AST.Node parent) {
+        for (AST.Node node : parent.getChildren()) {
             if (node.getData() != null) {
                 addToken(node.getData());
             } else {
@@ -83,14 +84,14 @@ public class PolizGenerator {
         clearLocalPolizStack();
     }
 
-    private void funcValue(ParseTree.Node node) {
+    private void funcValue(AST.Node node) {
         poliz.add(new Token(ServiceEnum.ARGUMENTS, node.getChildren().get(0).getData().getValue()));
         depthFirst(node.getChildren().get(1));
         node.getChildren().get(0).getData().setType(ServiceEnum.FUNC);
         poliz.add(node.getChildren().get(0).getData());
     }
 
-    private void methodValue(ParseTree.Node node) {
+    private void methodValue(AST.Node node) {
         poliz.add(new Token(ServiceEnum.ARGUMENTS, node.getChildren().get(0).getData().getValue()));
         depthFirst(node.getChildren().get(3).getChildren().get(1));
         node.getChildren().get(0).getData().setType(ServiceEnum.OBJECT);
@@ -99,7 +100,7 @@ public class PolizGenerator {
         poliz.add(node.getChildren().get(3).getChildren().get(0).getData());
     }
 
-    private void funcStmt(ParseTree.Node node) {
+    private void funcStmt(AST.Node node) {
         addToken(node.getChildren().get(2).getData());
         addToken(node.getChildren().get(1).getData());
         addToken(node.getChildren().get(0).getData());
@@ -115,7 +116,7 @@ public class PolizGenerator {
     }
 
 
-    private void whileStmt(ParseTree.Node node) {
+    private void whileStmt(AST.Node node) {
         int labelPos = poliz.size();
         depthFirst(node.getChildren().get(2));
         addLabel(ServiceEnum.GOTO_LIE, labelStack);
@@ -131,7 +132,7 @@ public class PolizGenerator {
         clearLocalPolizStack();
     }
 
-    private void doWhileStmt(ParseTree.Node node) {
+    private void doWhileStmt(AST.Node node) {
         int labelPos = poliz.size();
         poliz.add(new Token(ServiceEnum.START_VISIBILITY_AREA, "DO_WHILE"));
         depthFirst(node.getChildren().get(1));
@@ -146,14 +147,14 @@ public class PolizGenerator {
         clearLocalPolizStack();
     }
 
-    private void classDeclareStmt(ParseTree.Node node) {
+    private void classDeclareStmt(AST.Node node) {
         poliz.add(node.getChildren().get(4).getData());
         poliz.add(node.getChildren().get(2).getData());
         poliz.add(node.getChildren().get(0).getData());
         clearLocalPolizStack();
     }
 
-    private void forStmt(ParseTree.Node node) {
+    private void forStmt(AST.Node node) {
         poliz.add(new Token(ServiceEnum.START_VISIBILITY_AREA, "FOR"));
         depthFirst(node.getChildren().get(2));
         clearLocalPolizStack();
@@ -181,7 +182,7 @@ public class PolizGenerator {
             breakStack.pop().setValue(poliz.size() + 1);
     }
 
-    private void ifStmt(ParseTree.Node node) {
+    private void ifStmt(AST.Node node) {
         depthFirst(node.getChildren().get(2));
         addLabel(ServiceEnum.GOTO_LIE, labelStack);
         depthFirst(node.getChildren().get(4));

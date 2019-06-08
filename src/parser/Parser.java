@@ -4,13 +4,13 @@ import enumerations.ComponentsEnum;
 import enumerations.LexemeEnum;
 import exceptions.ParseException;
 import lexer.Token;
-import parser.ParseTree.Node;
+import parser.AST.Node;
 
 import java.util.ArrayList;
 
 public class Parser {
     private ArrayList<Token> tokens;
-    private ParseTree tree;
+    private AST tree;
     private int offset;
 
     public void parse(ArrayList<Token> tokens) throws ParseException {
@@ -22,13 +22,13 @@ public class Parser {
         }
     }
 
-    public ParseTree getTree() {
+    public AST getTree() {
         return tree;
     }
 
     private void init(ArrayList<Token> tokens) {
         this.tokens = tokens;
-        tree = new ParseTree(ComponentsEnum.EXPRESSION);
+        tree = new AST(ComponentsEnum.EXPRESSION);
         offset = -1;
     }
 

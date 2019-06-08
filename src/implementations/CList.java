@@ -5,13 +5,13 @@ import enumerations.LexemeEnum;
 
 import java.util.*;
 
-public class CustomList<T> implements List<T>, Parsable {
+public class CList<T> implements List<T>, Parsable {
     private Object[] list;
     private int capacity = 16;
     private int resizeValue = 16;
     private int size = 0;
 
-    public CustomList() {
+    public CList() {
         list = new Object[capacity];
     }
 

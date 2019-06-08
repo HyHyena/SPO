@@ -7,10 +7,10 @@ import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 
-public class ParseTree {
+public class AST {
     private Node root;
 
-    public ParseTree(CompilerEnum type) {
+    public AST(CompilerEnum type) {
         root = new Node(type);
         root.children = new ArrayList<>();
     }

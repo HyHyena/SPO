@@ -6,7 +6,7 @@ import enumerations.LexemeEnum;
 import java.util.ArrayList;
 import java.util.HashSet;
 
-public class CustomHashSet<T> extends HashSet<T> implements Parsable {
+public class CHashSet<T> extends HashSet<T> implements Parsable {
     @Override
     public Object doMethod(String methodName, ArrayList<Object> arguments, CompilerEnum type) {
         if (methodName.equals("add")) {
