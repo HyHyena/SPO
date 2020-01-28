@@ -1,4 +1,4 @@
-package Collections;
+package Types;
 
 import java.util.Objects;
 

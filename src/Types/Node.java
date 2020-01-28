@@ -1,4 +1,4 @@
-package Collections;
+package Types;
 
 class Node {
     Node next;

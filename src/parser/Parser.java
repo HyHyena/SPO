@@ -1,7 +1,7 @@
 package Parser;
 
-import Collections.HashSet;
-import Collections.LinkedList;
+import Types.HashSet;
+import Types.LinkedList;
 import Lexer.Lexeme;
 import Lexer.Token;
 

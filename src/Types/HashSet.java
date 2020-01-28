@@ -1,4 +1,4 @@
-package Collections;
+package Types;
 
 public class HashSet {
     private LinkedList[] buckets;

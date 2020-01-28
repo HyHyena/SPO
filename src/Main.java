@@ -2,7 +2,7 @@ import Lexer.Lexer;
 import Lexer.Token;
 import Optimizer.Optimisation;
 import Parser.Parser;
-import Stack_Maschine.Executor;
+import Executor.Executor;
 
 import java.util.List;
 
