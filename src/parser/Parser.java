@@ -1,661 +1,810 @@
-package parser;
+package Parser;
 
-import enumerations.ComponentsEnum;
-import enumerations.LexemeEnum;
-import exceptions.ParseException;
-import lexer.Token;
-import parser.AST.Node;
+import Collections.HashSet;
+import Collections.LinkedList;
+import Lexer.Lexeme;
+import Lexer.Token;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Stack;
 
 public class Parser {
-    private ArrayList<Token> tokens;
-    private AST tree;
-    private int offset;
+    private List<Token> tokens;
+    private Stack<String> stack = new Stack<>();
+    public HashMap<String, Map<String, Object>> tableOfVariables = new HashMap<>();
+    public HashMap<String, List<String>> reversePolishNotation = new HashMap<>();
+    private String currentFunction;
+    private String prevFunction;
+    private int currentToken;
+    private int p0;
+    private int p1;
 
-    public void parse(ArrayList<Token> tokens) throws ParseException {
-        init(tokens);
-        while (offset + 1 < tokens.size()) {
-            if (!expr(tree.getRoot())) {
-                throw new ParseException(generateTokenNotFoundException(ComponentsEnum.FUNC_STMT.toString()));
-            }
-        }
-    }
-
-    public AST getTree() {
-        return tree;
-    }
-
-    private void init(ArrayList<Token> tokens) {
+    public Parser(List<Token> tokens) {
         this.tokens = tokens;
-        tree = new AST(ComponentsEnum.EXPRESSION);
-        offset = -1;
+        currentToken = 0;
+        currentFunction = "main";
+        reversePolishNotation.put(currentFunction, new ArrayList<>());
+        tableOfVariables.put(currentFunction, new HashMap<>());
     }
 
-    private Token getValidToken(int offset) throws ParseException {
-        if (offset >= tokens.size())
-            throw new ParseException();
-        return tokens.get(offset);
-    }
-
-    private String generateTokenNotFoundException(String expectedToken) {
-        Token token = tokens.get(offset);
-        StringBuilder sb = new StringBuilder();
-        sb.append("\nRequired: ");
-        sb.append(expectedToken);
-        sb.append("\nFounded: ");
-        sb.append(token.getType());
-        sb.append(" with value \"");
-        sb.append(token.getValue());
-        sb.append("\" in row ");
-        sb.append(token.getRow());
-        sb.append(" and column ");
-        sb.append(token.getColumn());
-        return sb.toString();
-    }
-
-    private String generateEndOfFileException(String expectedToken) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("\nRequired: ");
-        sb.append(expectedToken);
-        sb.append("\nFounded: end of file");
-        return sb.toString();
-    }
-
-    private boolean expr(Node root) throws ParseException {
-        return declareStmt(root) || assignStmt(root) || funcStmt(root) || classDeclareStmt(root);
-    }
-
-    private boolean blockExpr(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.BLOCK_EXPRESSION));
-        if (declareStmt(node.getNode()) || assignStmt(node.getNode()) || whileStmt(node.getNode())
-                || ifStmt(node.getNode()) || forStmt(node.getNode()) || doWhileStmt(node.getNode())
-                || printStmt(node.getNode()) || returnStmt(node.getNode()) || breakStmt(node.getNode())
-                || continueStmt(node.getNode()) || classDeclareStmt(node.getNode()))
-            return true;
-        node.deleteNode();
-        return false;
-    }
-
-    private boolean bracesExpr(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.BRACES_EXPRESSION));
-        if (!leftBraces(++offset, node.getNode()))
-            return false;
-        while (blockExpr(node.getNode())) ;
-        if (!rightBraces(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.RIGHT_BRACES.toString()));
-        return true;
-    }
-
-    private boolean assignStmt(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.ASSIGN_STMT));
-        if (!typedVar(node.getNode()) && !var(++offset, node.getNode())) {
-            --offset;
-            node.deleteNode();
-            return false;
+    public boolean lang() {
+        boolean lang = false;
+        while (this.tokens.size() != currentToken) {
+            if (!expr()) {
+                System.err.println("Expr error");
+                System.exit(5);
+            } else {
+                lang = true;
+            }
         }
-        if (!assignOp(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.ASSIGN_OP.toString()));
-        if (!valueStmt(node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(ComponentsEnum.VALUE.toString()));
-        if (!semicolonSp(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.SEMICOLON_SP.toString()));
-        return true;
+        //System.out.println(reversePolishNotation);
+        return lang;
     }
 
-    private boolean printStmt(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.PRINT_STMT));
-        if (!printKw(++offset, node.getNode())) {
-            node.deleteNode();
-            --offset;
-            return false;
+    private boolean expr() {
+        boolean expr = false;
+        if (declare_stmt() || init() || assign() || while_expr() || if_expr() || for_expr() || set_stmt() ||
+                print() || function() || functionExecute() || thread() || threadJoin()) {
+            expr = true;
         }
-        if (!semicolonSp(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.SEMICOLON_SP.toString()));
-        return true;
+        return expr;
     }
 
-    private boolean breakStmt(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.BREAK_STMT));
-        if (!breakKw(++offset, node.getNode())) {
-            node.deleteNode();
-            --offset;
-            return false;
-        }
-        if (!semicolonSp(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.SEMICOLON_SP.toString()));
-        return true;
-    }
-
-    private boolean continueStmt(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.CONTINUE_STMT));
-        if (!continueKw(++offset, node.getNode())) {
-            node.deleteNode();
-            --offset;
-            return false;
-        }
-        if (!semicolonSp(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.SEMICOLON_SP.toString()));
-        return true;
-    }
-
-    private boolean returnStmt(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.RETURN_STMT));
-        if (!returnKw(++offset, node.getNode())) {
-            node.deleteNode();
-            --offset;
-            return false;
-        }
-        if (!valueStmt(node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(ComponentsEnum.VALUE.toString()));
-        if (!semicolonSp(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.SEMICOLON_SP.toString()));
-        return true;
-    }
-
-
-    private boolean typedVar(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.TYPED_VAR));
-        if (type(++offset, node.getNode())) {
-            if (!var(++offset, node.getNode()))
-                throw new ParseException(generateTokenNotFoundException(LexemeEnum.VAR.toString()));
-        } else {
-            node.deleteNode();
-            --offset;
-            return false;
-        }
-        return true;
-    }
-
-    private boolean whileStmt(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.WHILE_STMT));
-        if (!whileKw(++offset, node.getNode())) {
-            node.deleteNode();
-            --offset;
-            return false;
-        }
-        if (!leftParentheses(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.LEFT_PARENTHESES.toString()));
-        if (!valueStmt(node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(ComponentsEnum.VALUE.toString()));
-        if (!rightParentheses(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.RIGHT_PARENTHESES.toString()));
-        if (!bracesExpr(node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(ComponentsEnum.EXPRESSION.toString()));
-        return true;
-    }
-
-    private boolean doWhileStmt(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.DO_WHILE_STMT));
-        if (!doKw(++offset, node.getNode())) {
-            node.deleteNode();
-            --offset;
-            return false;
-        }
-        if (!bracesExpr(node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(ComponentsEnum.EXPRESSION.toString()));
-        if (!whileKw(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.WHILE_KW.toString()));
-        if (!leftParentheses(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.LEFT_PARENTHESES.toString()));
-        if (!valueStmt(node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(ComponentsEnum.VALUE.toString()));
-        if (!rightParentheses(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.RIGHT_PARENTHESES.toString()));
-        if (!semicolonSp(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.SEMICOLON_SP.toString()));
-        return true;
-    }
-
-    private boolean declareStmt(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.DECLARE_STMT));
-        if (!typedVar(node.getNode())) {
-            node.deleteNode();
-            return false;
-        }
-        if (!semicolonSp(++offset, node.getNode())) {
-            offset -= 3;
-            node.deleteNode();
-            return false;
-        }
-        return true;
-    }
-
-    private boolean classDeclareStmt(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.CLASS_DECLARE_STMT));
-        if (!classKw(++offset, node.getNode())) {
-            node.deleteNode();
-            --offset;
-            return false;
-        }
-        if (!lessOp(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.COLON_SP.toString()));
-        if (!type(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(ComponentsEnum.TYPE.toString()));
-        if (!greaterOp(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.COLON_SP.toString()));
-        if (!var(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.VAR.toString()));
-        if (!semicolonSp(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.SEMICOLON_SP.toString()));
-        return true;
-    }
-
-    private boolean ifStmt(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.IF_STMT));
-        if (!ifKw(++offset, node.getNode())) {
-            node.deleteNode();
-            --offset;
-            return false;
-        }
-        if (!leftParentheses(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.LEFT_PARENTHESES.toString()));
-        if (!valueStmt(node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(ComponentsEnum.VALUE.toString()));
-        if (!rightParentheses(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.RIGHT_PARENTHESES.toString()));
-        if (!bracesExpr(node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(ComponentsEnum.EXPRESSION.toString()));
-        if (!elseKw(++offset, node.getNode())) {
-            --offset;
-            return true;
-        }
-        if (!ifStmt(node.getNode()))
-            if (!bracesExpr(node.getNode()))
-                throw new ParseException(generateTokenNotFoundException(ComponentsEnum.EXPRESSION.toString()));
-        return true;
-    }
-
-    private boolean funcStmt(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.FUNC_STMT));
-        if (!funcKw(++offset, node.getNode())) {
-            node.deleteNode();
-            --offset;
-            return false;
-        }
-        if (!type(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(ComponentsEnum.TYPE.toString()));
-        if (!var(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(ComponentsEnum.FUNC_STMT.toString()));
-        if (!argumentsWithType(node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(ComponentsEnum.ARGUMENTS.toString()));
-        if (semicolonSp(++offset, node.getNode()))
-            return true;
-        --offset;
-        if (!bracesExpr(node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(ComponentsEnum.EXPRESSION.toString()));
-        return true;
-    }
-
-    private boolean argumentsWithType(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.ARGUMENTS));
-        if (!leftParentheses(++offset, node.getNode())) {
-            --offset;
-            node.deleteNode();
-            return false;
-        }
-        if (!type(++offset, node.getNode()))
-            return rightParentheses(offset, node.getNode());
-        if (!var(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.VAR.toString()));
-        while (commaSp(++offset, node.getNode())) {
-            if (!type(++offset, node.getNode()))
-                throw new ParseException(generateTokenNotFoundException(ComponentsEnum.TYPE.toString()));
-            if (!var(++offset, node.getNode()))
-                throw new ParseException(generateTokenNotFoundException(LexemeEnum.VAR.toString()));
-        }
-        return rightParentheses(offset, node.getNode());
-    }
-
-    private boolean argumentsWithoutType(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.ARGUMENTS));
-        if (!leftParentheses(++offset, node.getNode())) {
-            --offset;
-            node.deleteNode();
-            return false;
-        }
-        if (!valueStmt(node.getNode()))
-            return rightParentheses(offset, node.getNode());
-        while (commaSp(++offset, node.getNode())) {
-            if (!valueStmt(node.getNode()))
-                throw new ParseException(generateTokenNotFoundException(ComponentsEnum.VALUE.toString()));
-        }
-        return rightParentheses(offset, node.getNode());
-    }
-
-    private boolean forStmt(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.FOR_STMT));
-        if (!forKw(++offset, node.getNode())) {
-            node.deleteNode();
-            --offset;
-            return false;
-        }
-        if (!leftParentheses(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.LEFT_PARENTHESES.toString()));
-        if (!forAssign(node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(ComponentsEnum.FOR_ASSIGN.toString()));
-        if (!forCondition(node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(ComponentsEnum.FOR_CONDITION.toString()));
-        if (!forIterator(node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(ComponentsEnum.FOR_ITERATOR.toString()));
-        if (!rightParentheses(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.RIGHT_PARENTHESES.toString()));
-        if (!bracesExpr(node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(ComponentsEnum.EXPRESSION.toString()));
-        return true;
-    }
-
-    private boolean forAssign(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.FOR_ASSIGN));
-        multipleAssignStmt(node.getNode());
-        while (commaSp(++offset, node.getNode())) {
-            if (!multipleAssignStmt(node.getNode()))
-                throw new ParseException(generateTokenNotFoundException(ComponentsEnum.ASSIGN_STMT.toString()));
-        }
-        if (!semicolonSp(offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.SEMICOLON_SP.toString()));
-        return true;
-    }
-
-    private boolean forCondition(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.FOR_CONDITION));
-        valueStmt(node.getNode());
-        if (!semicolonSp(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.SEMICOLON_SP.toString()));
-        return true;
-    }
-
-    private boolean forIterator(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.FOR_ITERATOR));
-        multipleAssignStmtWithoutType(node.getNode());
-        while (commaSp(++offset, node.getNode())) {
-            if (!multipleAssignStmtWithoutType(node.getNode()))
-                throw new ParseException(generateTokenNotFoundException(ComponentsEnum.ASSIGN_STMT.toString()));
-        }
-        --offset;
-        return true;
-    }
-
-    private boolean multipleAssignStmt(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.ASSIGN_STMT));
-        if (!typedVar(node.getNode()) && !var(++offset, node.getNode())) {
-            --offset;
-            node.deleteNode();
-            return false;
-        }
-        if (!assignOp(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.ASSIGN_OP.toString()));
-        if (!valueStmt(node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(ComponentsEnum.VALUE.toString()));
-        return true;
-    }
-
-    private boolean multipleAssignStmtWithoutType(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.ASSIGN_STMT));
-        if (!var(++offset, node.getNode())) {
-            --offset;
-            node.deleteNode();
-            return false;
-        }
-        if (!assignOp(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.ASSIGN_OP.toString()));
-        if (!valueStmt(node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(ComponentsEnum.VALUE.toString()));
-        return true;
-    }
-
-    private boolean valueStmt(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.VALUE_STMT));
-        if (signValue(node.getNode())) {
-            while (true) {
-                if (!binaryOp(++offset, node.getNode())) {
-                    --offset;
-                    return true;
+    private boolean thread() {
+        boolean thread = false;
+        int oldPos = currentToken;
+        if (getTokenLexeme() == Lexeme.VAR && tableOfVariables.get(currentFunction).get(getLastTokenValue()) instanceof Thread) {
+            String threadVar = getLastTokenValue();
+            if (getTokenLexeme() == Lexeme.DOT) {
+                if (getTokenLexeme() == Lexeme.RUN) {
+                    if (getTokenLexeme() == Lexeme.L_RB) {
+                        if (getTokenLexeme() == Lexeme.VAR && reversePolishNotation.containsKey("function_" + getLastTokenValue())) {
+                            String funcName = getLastTokenValue();
+                            if (getTokenLexeme() == Lexeme.R_RB) {
+                                if (getTokenLexeme() == Lexeme.SEMI) {
+                                    reversePolishNotation.get(currentFunction).add("thread_" + funcName);
+                                    reversePolishNotation.get(currentFunction).add(threadVar);
+                                    reversePolishNotation.get(currentFunction).add("run");
+                                    thread = true;
+                                }
+                            } else {
+                                currentToken--;
+                                if (getTokenLexeme() == Lexeme.L_RB) {
+                                    if (params(funcName)) {
+                                        if (getTokenLexeme() == Lexeme.R_RB) {
+                                            if (getTokenLexeme() == Lexeme.R_RB) {
+                                                if (getTokenLexeme() == Lexeme.SEMI) {
+                                                    reversePolishNotation.get(currentFunction).add("thread_" + funcName);
+                                                    reversePolishNotation.get(currentFunction).add(threadVar);
+                                                    reversePolishNotation.get(currentFunction).add("run");
+                                                    thread = true;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-                if (!signValue(node.getNode()))
-                    throw new ParseException(generateTokenNotFoundException(ComponentsEnum.VALUE.toString()));
             }
-        } else {
-            node.deleteNode();
-            return false;
         }
+
+        currentToken = thread ? currentToken : oldPos;
+        return thread;
     }
 
-    private boolean signValue(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.SIGN_VALUE));
-        if (!unaryOp(++offset, node.getNode())) {
-            if (sign(offset, node.getNode())) {
-                ++offset;
+    private boolean threadJoin() {
+        boolean thread = false;
+        int oldPos = currentToken;
+        if (getTokenLexeme() == Lexeme.VAR && tableOfVariables.get(currentFunction).get(getLastTokenValue()) instanceof Thread) {
+            String threadVar = getLastTokenValue();
+            if (getTokenLexeme() == Lexeme.DOT) {
+                if (getTokenLexeme() == Lexeme.JOIN) {
+                    if (getTokenLexeme() == Lexeme.L_RB) {
+                        if (getTokenLexeme() == Lexeme.R_RB) {
+                            if (getTokenLexeme() == Lexeme.SEMI) {
+                                reversePolishNotation.get(currentFunction).add(threadVar);
+                                reversePolishNotation.get(currentFunction).add("join");
+                                thread = true;
+                            }
+                        }
+                    }
+                }
             }
-        } else {
-            ++offset;
         }
-        if (!value(offset, node.getNode())) {
-            node.deleteNode();
-            return false;
-        } else {
-            return true;
-        }
+
+        currentToken = thread ? currentToken : oldPos;
+        return thread;
     }
 
-    private boolean sign(int offset, Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.SIGN));
-        try {
-            Token token = getValidToken(offset);
-            if (token.getType().equals(LexemeEnum.SUM_OP) || token.getType().equals(LexemeEnum.SUB_OP)) {
-                Token tmpToken = new Token(token);
-                tmpToken.setType(tmpToken.getType() == LexemeEnum.SUM_OP ? LexemeEnum.UNARY_SUM_OP : LexemeEnum.UNARY_SUB_OP);
-                tmpToken.setValue(":" + tmpToken.getValue());
-                node.addNode(new Node(tmpToken, tmpToken.getType()));
-                return true;
+    private boolean function() {
+        boolean func = false;
+        int oldPos = currentToken;
+        if (getTokenLexeme() == Lexeme.FUNCTION) {
+            if (getTokenLexeme() == Lexeme.TYPE) {
+                if (getTokenLexeme() == Lexeme.VAR) {
+                    String funcName = "function_" + getLastTokenValue();
+                    tableOfVariables.put(funcName, new HashMap<>());
+                    if (getTokenLexeme() == Lexeme.L_RB) {
+                        if (paramsInit(funcName)) {
+                            if (getTokenLexeme() == Lexeme.R_RB) {
+                                if (getTokenLexeme() == Lexeme.L_FB) {
+                                    prevFunction = currentFunction;
+                                    currentFunction = funcName;
+                                    reversePolishNotation.put(funcName, new ArrayList<>());
+                                    while (expr()) {
+                                    }
+                                    if (getTokenLexeme() == Lexeme.RETURN) {
+                                        tableOfVariables.get(currentFunction).put(getLastTokenValue(), null);
+                                        if (getTokenLexeme() == Lexeme.VAR) {
+                                            reversePolishNotation.get(currentFunction).add(getLastTokenValue());
+                                            reversePolishNotation.get(currentFunction).add("return");
+                                            if (getTokenLexeme() == Lexeme.SEMI) {
+                                                if (getTokenLexeme() == Lexeme.R_FB) {
+                                                    currentFunction = prevFunction;
+                                                    reversePolishNotation.get(currentFunction).add(funcName);
+                                                    func = true;
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    if (getTokenLexeme() == Lexeme.R_FB) {
+                                        currentFunction = prevFunction;
+                                        reversePolishNotation.get(currentFunction).add(funcName);
+                                        func = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (!func) {
+                        reversePolishNotation.remove(funcName);
+                    }
+                }
             } else {
-                node.deleteNode();
+                currentToken--;
+                if (getTokenLexeme() == Lexeme.VAR) {
+                    String funcName = "function_" + getLastTokenValue();
+                    tableOfVariables.put(funcName, new HashMap<>());
+                    if (getTokenLexeme() == Lexeme.L_RB) {
+                        if (paramsInit(funcName)) {
+                            if (getTokenLexeme() == Lexeme.R_RB) {
+                                if (getTokenLexeme() == Lexeme.L_FB) {
+                                    prevFunction = currentFunction;
+                                    currentFunction = funcName;
+                                    reversePolishNotation.put(funcName, new ArrayList<>());
+                                    while (expr()) {
+                                    }
+                                    if (getTokenLexeme() == Lexeme.RETURN) {
+                                        tableOfVariables.get(currentFunction).put(getLastTokenValue(), null);
+                                        if (getTokenLexeme() == Lexeme.VAR) {
+                                            reversePolishNotation.get(currentFunction).add(getLastTokenValue());
+                                            reversePolishNotation.get(currentFunction).add("return");
+                                            if (getTokenLexeme() == Lexeme.SEMI) {
+                                                if (getTokenLexeme() == Lexeme.R_FB) {
+                                                    currentFunction = prevFunction;
+                                                    //reversePolishNotation.get(currentFunction).add(funcName);
+                                                    func = true;
+                                                }
+                                            }
+                                        } else {
+                                            currentToken--;
+                                            if (getTokenLexeme() == Lexeme.SEMI) {
+                                                if (getTokenLexeme() == Lexeme.R_FB) {
+                                                    currentFunction = prevFunction;
+                                                    //reversePolishNotation.get(currentFunction).add(funcName);
+                                                    func = true;
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    if (getTokenLexeme() == Lexeme.R_FB) {
+                                        currentFunction = prevFunction;
+                                        //reversePolishNotation.get(currentFunction).add(funcName);
+                                        func = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        currentToken = func ? currentToken : oldPos;
+        return func;
+    }
+
+    private boolean paramsInit(String funcName) {
+        boolean param = false;
+        int oldPos = currentToken;
+        if (getTokenLexeme() == Lexeme.TYPE) {
+            if (getTokenLexeme() == Lexeme.VAR) {
+                tableOfVariables.get(funcName).put(getLastTokenValue(), null);
+                if (getTokenLexeme() == Lexeme.COM) {
+                    if (paramsInit(funcName)) {
+                        param = true;
+                    }
+                } else {
+                    currentToken--;
+                    param = true;
+                }
+            }
+        } else {
+            currentToken--;
+            if (getTokenLexeme() == Lexeme.R_RB) {
+                currentToken--;
+                param = true;
+            }
+        }
+
+        currentToken = param ? currentToken : oldPos;
+        return param;
+    }
+
+    private boolean init() {
+        boolean init = false;
+        int oldPos = currentToken;
+        if (getTokenLexeme() == Lexeme.TYPE) {
+            if (assign_op()) {
+                if (getTokenLexeme() == Lexeme.SEMI) {
+                    init = true;
+                }
+            }
+        }
+        currentToken = init ? currentToken : oldPos;
+        return init;
+    }
+
+    private boolean assign() {
+        boolean assign = false;
+        int oldPos = currentToken;
+        if (assign_op()) {
+            if (getTokenLexeme() == Lexeme.SEMI) {
+                assign = true;
+            }
+        }
+        currentToken = assign ? currentToken : oldPos;
+        return assign;
+    }
+
+    private boolean declare_stmt() {
+        boolean declare = false;
+        String var, type;
+        int oldPos = currentToken;
+        if (getTokenLexeme() == Lexeme.TYPE) {
+            type = getLastTokenValue();
+            if (getTokenLexeme() == Lexeme.VAR && !tableOfVariables.get(currentFunction).containsKey(getLastTokenValue())) {
+                var = getLastTokenValue();
+                if (getTokenLexeme() == Lexeme.SEMI) {
+                    declare = true;
+                    switch (type) {
+                        case "HashSet":
+                            tableOfVariables.get(currentFunction).put(var, new HashSet(3));
+                            break;
+                        case "LinkedList":
+                            tableOfVariables.get(currentFunction).put(var, new LinkedList());
+                            break;
+                        case "Thread":
+                            tableOfVariables.get(currentFunction).put(var, new Thread());
+                            break;
+                        default:
+                            tableOfVariables.get(currentFunction).put(var, null);
+                            break;
+                    }
+                }
+            }
+        }
+        currentToken = declare ? currentToken : oldPos;
+        return declare;
+    }
+
+    private boolean set_stmt() {
+        boolean set = false;
+        int oldPos = currentToken;
+        String col_op;
+        if (getTokenLexeme() == Lexeme.VAR && tableOfVariables.get(currentFunction).containsKey(getLastTokenValue())) {
+            reversePolishNotation.get(currentFunction).add(getLastTokenValue());
+            if (getTokenLexeme() == Lexeme.DOT) {
+                if (getTokenLexeme() == Lexeme.COL_OP) {
+                    col_op = getLastTokenValue();
+                    if (bkt_value()) {
+                        if (getTokenLexeme() == Lexeme.SEMI) {
+                            set = true;
+                            reversePolishNotation.get(currentFunction).add(col_op);
+                        } else {
+                            reversePolishNotation.get(currentFunction).remove(reversePolishNotation.get(currentFunction).size() - 1);
+                        }
+                    } else {
+                        reversePolishNotation.get(currentFunction).remove(reversePolishNotation.get(currentFunction).size() - 1);
+                    }
+                } else {
+                    reversePolishNotation.get(currentFunction).remove(reversePolishNotation.get(currentFunction).size() - 1);
+                }
+            } else {
+                reversePolishNotation.get(currentFunction).remove(reversePolishNotation.get(currentFunction).size() - 1);
+            }
+        }
+        currentToken = set ? currentToken : oldPos;
+        return set;
+    }
+
+    private boolean if_expr() {
+        boolean ifExpr = false;
+        int oldPos = currentToken;
+        if (getTokenLexeme() == Lexeme.IF) {
+            if (condition_stmt()) {
+                if (if_body()) {
+                    ifExpr = true;
+                    reversePolishNotation.get(currentFunction).set(p0, String.valueOf(reversePolishNotation.get(currentFunction).size() - 1));
+                }
+            }
+        }
+        currentToken = ifExpr ? currentToken : oldPos;
+        return ifExpr;
+    }
+
+    private boolean if_body() {
+        boolean if_body = false;
+        int oldPos = currentToken;
+
+        if (getTokenLexeme() == Lexeme.L_FB) {
+            //noinspection StatementWithEmptyBody
+            while (figure_bkt()) {
+            }
+
+            if (getTokenLexeme() == Lexeme.R_FB) {
+                if_body = true;
+            }
+        }
+        currentToken = if_body ? currentToken : oldPos;
+        return if_body;
+    }
+
+    private boolean print() {
+        boolean print = false;
+        int old_position = currentToken;
+
+        if (getTokenLexeme() == Lexeme.PRINT) {
+            if (getTokenLexeme() == Lexeme.SEMI) {
+                reversePolishNotation.get(currentFunction).add("print");
+                print = true;
+            } else {
+                currentToken--;
+                if (getTokenLexeme() == Lexeme.VAR) {
+                    reversePolishNotation.get(currentFunction).add(getLastTokenValue());
+                    if (getTokenLexeme() == Lexeme.SEMI) {
+                        reversePolishNotation.get(currentFunction).add("print");
+                        print = true;
+                    } else {
+                        reversePolishNotation.get(currentFunction).remove(reversePolishNotation.get(currentFunction).size() - 1);
+                    }
+                } else {
+                    currentToken--;
+                    if (getTokenLexeme() == Lexeme.STRING) {
+                        reversePolishNotation.get(currentFunction).add(getLastTokenValue());
+                        if (getTokenLexeme() == Lexeme.SEMI) {
+                            reversePolishNotation.get(currentFunction).add("print");
+                            print = true;
+                        } else {
+                            reversePolishNotation.get(currentFunction).remove(reversePolishNotation.get(currentFunction).size() - 1);
+                        }
+                    } else {
+                        reversePolishNotation.get(currentFunction).remove(reversePolishNotation.get(currentFunction).size() - 1);
+                    }
+                }
+            }
+        }
+
+        currentToken = print ? currentToken : old_position;
+        return print;
+    }
+
+    private boolean while_expr() {
+        boolean whileExpr = false;
+        int oldPos = currentToken;
+
+        if (getTokenLexeme() == Lexeme.WHILE) {
+            if (condition_stmt()) {
+                if (while_body()) {
+                    whileExpr = true;
+                    reversePolishNotation.get(currentFunction).set(p0, String.valueOf(reversePolishNotation.get(currentFunction).size() + 1));
+                    reversePolishNotation.get(currentFunction).add(String.valueOf(p1));
+                    reversePolishNotation.get(currentFunction).add("!");
+                }
+            }
+        }
+        currentToken = whileExpr ? currentToken : oldPos;
+        return whileExpr;
+    }
+
+    private boolean while_body() {
+        boolean while_body = false;
+        int oldPos = currentToken;
+
+        if (getTokenLexeme() == Lexeme.L_FB) {
+            //noinspection StatementWithEmptyBody
+            while (expr()) { //
+            }
+            if (getTokenLexeme() == Lexeme.R_FB) {
+                while_body = true;
+            }
+        }
+        currentToken = while_body ? currentToken : oldPos;
+        return while_body;
+    }
+
+    private boolean for_expr() {
+        boolean for_loop = false;
+        int oldPos = currentToken;
+        if (getTokenLexeme() == Lexeme.FOR) {
+            if (for_stmt()) {
+                if (for_body()) {
+                    for_loop = true;
+                    reversePolishNotation.get(currentFunction).set(p0, String.valueOf(reversePolishNotation.get(currentFunction).size() + 1));
+                    reversePolishNotation.get(currentFunction).add(String.valueOf(p1));
+                    reversePolishNotation.get(currentFunction).add("!");
+                }
+            }
+        }
+        currentToken = for_loop ? currentToken : oldPos;
+        return for_loop;
+    }
+
+    private boolean for_body() {
+        boolean for_body = false;
+        int oldPos = currentToken;
+
+        if (getTokenLexeme() == Lexeme.L_FB) {
+            //noinspection StatementWithEmptyBody
+            while (figure_bkt()) {
+            }
+            if (getTokenLexeme() == Lexeme.R_FB) {
+                for_body = true;
+            }
+        }
+        currentToken = for_body ? currentToken : oldPos;
+        return for_body;
+    }
+
+    private boolean for_stmt() {
+        boolean for_expr = false;
+        int oldPos = currentToken;
+
+        if (getTokenLexeme() == Lexeme.L_RB) {
+            if (start_stmt()) {
+                if (if_log_expr()) {
+                    if (assign_op()) {
+                        if (getTokenLexeme() == Lexeme.R_RB) {
+                            for_expr = true;
+                        }
+                    }
+                }
+            }
+        }
+        currentToken = for_expr ? currentToken : oldPos;
+        return for_expr;
+    }
+
+    private boolean condition_stmt() {
+        int oldPos = currentToken;
+        boolean condition = false;
+        if (getTokenLexeme() == Lexeme.L_RB) {
+            if (log_stmt()) {//log_stmt
+                if (getTokenLexeme() == Lexeme.R_RB) {
+                    condition = true;
+                }
+            }
+        }
+        currentToken = condition ? currentToken : oldPos;
+        return condition;
+    }
+
+    private boolean start_stmt() {
+        boolean start_expr = false;
+
+        if (init() || assign()) {
+            start_expr = true;
+        }
+        return start_expr;
+    }
+
+    private boolean log_stmt() {
+        boolean log_expr = false;
+        int oldPos = currentToken;
+        p1 = reversePolishNotation.get(currentFunction).size();
+        if (stmt()) {
+            if (getTokenLexeme() == Lexeme.COMP_OP) {
+                String log_op = getLastTokenValue();
+                if (stmt()) {
+                    log_expr = true;
+                    reversePolishNotation.get(currentFunction).add(log_op);
+                    p0 = reversePolishNotation.get(currentFunction).size();
+                    reversePolishNotation.get(currentFunction).add("" + p0);
+                    reversePolishNotation.get(currentFunction).add("!F");
+                }
+            } else {
+                reversePolishNotation.get(currentFunction).remove(reversePolishNotation.get(currentFunction).size() - 1);
+                reversePolishNotation.get(currentFunction).remove(reversePolishNotation.get(currentFunction).size() - 1);
+            }
+        }
+
+        currentToken = log_expr ? currentToken : oldPos;
+
+
+        if (getTokenLexeme() == Lexeme.VAR) {
+            reversePolishNotation.get(currentFunction).add(getLastTokenValue());
+            if (getTokenLexeme() == Lexeme.DOT) {
+                if (getTokenLexeme() == Lexeme.COL_OP && getLastTokenValue().equals("contains")) {
+                    String col_op = getLastTokenValue();
+                    if (bkt_value()) {
+                        log_expr = true;
+                        reversePolishNotation.get(currentFunction).add(col_op);
+                        p0 = reversePolishNotation.get(currentFunction).size();
+                        reversePolishNotation.get(currentFunction).add("" + p0);
+                        reversePolishNotation.get(currentFunction).add("!F");
+                    }
+                }
+            } else {
+                reversePolishNotation.get(currentFunction).remove(reversePolishNotation.get(currentFunction).size() - 1);
+            }
+        } else {
+            currentToken--;
+        }
+
+        currentToken = log_expr ? currentToken : oldPos;
+        return log_expr;
+    }
+
+    private boolean if_log_expr() {
+        boolean if_log_expr = false;
+        int oldPos = currentToken;
+        if (assign_op() || stmt()) {
+            if (getTokenLexeme() == Lexeme.COMP_OP) {
+                String if_log_op = getLastTokenValue();
+                if (assign_op() || stmt()) {
+                    if (getTokenLexeme() == Lexeme.SEMI) {
+                        if_log_expr = true;
+                        reversePolishNotation.get(currentFunction).add(if_log_op);
+                        int p2 = reversePolishNotation.get(currentFunction).size();
+                        reversePolishNotation.get(currentFunction).add(p2 + "");
+                        reversePolishNotation.get(currentFunction).add("!F");
+                    }
+                }
+            }
+        }
+        currentToken = if_log_expr ? currentToken : oldPos;
+        return if_log_expr;
+    }
+
+    private boolean assign_op() {
+        boolean assign_op = false;
+        int oldPos = currentToken;
+        boolean add = false;
+        String var;
+
+        if (getTokenLexeme() == Lexeme.VAR) {
+            var = getLastTokenValue();
+            add = reversePolishNotation.get(currentFunction).add(var);
+            if (getTokenLexeme() == Lexeme.ASSIGN_OP) {
+                stack.push(getLastTokenValue());
+                if (stmt()) {
+                    assign_op = true;
+                    tableOfVariables.get(currentFunction).put(var, null);
+                } else if (functionExecute()) {
+                    assign_op = true;
+                }
+            }
+        }
+        if (add && !assign_op) {
+            reversePolishNotation.get(currentFunction).remove(reversePolishNotation.get(currentFunction).size() - 1);
+        }
+        if (assign_op) {
+            while (!stack.empty()) {
+                reversePolishNotation.get(currentFunction).add(stack.pop());
+            }
+        }
+        currentToken = assign_op ? currentToken : oldPos;
+        return assign_op;
+    }
+
+    private boolean functionExecute() {
+        boolean func = false;
+        int oldPos = currentToken;
+        String funcName;
+        if (getTokenLexeme() == Lexeme.VAR && tableOfVariables.containsKey("function_" + getLastTokenValue())) {
+            funcName = getLastTokenValue();
+            if (getTokenLexeme() == Lexeme.L_RB) {
+                if (params(funcName)) {
+                    if (getTokenLexeme() == Lexeme.R_RB) {
+                        if (getTokenLexeme() == Lexeme.SEMI) {
+                            reversePolishNotation.get(currentFunction).add(funcName);
+                            func = true;
+                        }
+                    }
+                } else if (getTokenLexeme() == Lexeme.R_RB) {
+                    if (getTokenLexeme() == Lexeme.SEMI) {
+                        reversePolishNotation.get(currentFunction).add(funcName);
+                        func = true;
+                    }
+                }
+            }
+        }
+
+        currentToken = func ? currentToken : oldPos;
+        return func;
+    }
+
+    private boolean params(String funcName) {
+        boolean param = false;
+        int oldPos = currentToken;
+        if (getTokenLexeme() == Lexeme.VAR && tableOfVariables.get(currentFunction).containsKey(getLastTokenValue())) {
+            reversePolishNotation.get(currentFunction).add("arg_" + getLastTokenValue());
+            if (getTokenLexeme() == Lexeme.COM) {
+                if (params(currentFunction)) {
+                    param = true;
+                }
+            } else {
+                currentToken--;
+                param = true;
+            }
+        } else {
+            currentToken--;
+            if (getTokenLexeme() == Lexeme.R_RB && tableOfVariables.get("function_" + funcName).size() == 1) {
+                currentToken--;
+                param = true;
+            }
+        }
+
+        currentToken = param ? currentToken : oldPos;
+        return param;
+    }
+
+    private boolean stmt() {
+        boolean value = false;
+
+        if (value()) {
+            //noinspection StatementWithEmptyBody
+            while (opValue()) {
+            }
+            value = true;
+        }
+        return value;
+    }
+
+    private boolean opValue() {
+        boolean opVal = false;
+        int oldPos = currentToken;
+
+        if (getTokenLexeme() == Lexeme.OP) {
+            String op = getLastTokenValue();
+            while (getPriority(op) <= getPriority(stack.peek())) {
+                reversePolishNotation.get(currentFunction).add(stack.pop());
+            }
+            stack.push(op);
+            if (value()) {
+                opVal = true;
+            }
+        }
+        currentToken = opVal ? currentToken : oldPos;
+        return opVal;
+    }
+
+    private boolean value() {
+        if (getTokenLexeme() == Lexeme.VAR) {
+            reversePolishNotation.get(currentFunction).add(getLastTokenValue());
+            if (!tableOfVariables.get(currentFunction).containsKey(getLastTokenValue())) {
+                reversePolishNotation.get(currentFunction).remove(reversePolishNotation.get(currentFunction).size() - 1);
+                currentToken--;
                 return false;
             }
-        } catch (ParseException e) {
-            throw new ParseException(generateEndOfFileException(ComponentsEnum.SIGN.toString()));
-        }
-    }
+            if (tableOfVariables.get(currentFunction).get(getLastTokenValue()) instanceof LinkedList
+                    || tableOfVariables.get(currentFunction).get(getLastTokenValue()) instanceof HashSet) {
+                if (getTokenLexeme() == Lexeme.DOT) {
+                    if (getTokenLexeme() == Lexeme.COL_OP && (getLastTokenValue().equals("get")
+                            || getLastTokenValue().equals("size"))) {
+                        String col_op = getLastTokenValue();
+                        if (bkt_value()) {
+                            reversePolishNotation.get(currentFunction).add(col_op);
+                            return true;
+                        }
+                    }
+                }
 
-    private boolean value(int offset, Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.VALUE));
-        if (funcValue(node.getNode()) || methodValue(node.getNode()) || var(offset, node.getNode())
-                || number(offset, node.getNode()) || bValueStmt(node.getNode())) {
-            return true;
-        } else {
-            node.deleteNode();
-            return false;
-        }
-    }
-
-    private boolean bValueStmt(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.B_VALUE_STMT));
-        if (leftParentheses(offset, node.getNode())) {
-            if (!valueStmt(node.getNode()))
-                throw new ParseException(generateTokenNotFoundException(ComponentsEnum.VALUE.toString()));
-            if (!rightParentheses(++offset, node.getNode()))
-                throw new ParseException(generateTokenNotFoundException(LexemeEnum.RIGHT_PARENTHESES.toString()));
-        } else {
-            node.deleteNode();
-            return false;
-        }
-        return true;
-    }
-
-    private boolean funcValue(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.FUNC_VALUE));
-        if (var(offset, node.getNode()) && argumentsWithoutType(node.getNode())) {
-            return true;
-        } else {
-            node.deleteNode();
-            return false;
-        }
-    }
-
-    private boolean methodValue(Node node) throws ParseException {
-        node.addNode(new Node(ComponentsEnum.METHOD_VALUE));
-        if (!var(offset, node.getNode())) {
-            node.deleteNode();
-            return false;
-        }
-        if (!colonSp(++offset, node.getNode())) {
-            node.deleteNode();
-            --offset;
-            return false;
-        }
-        if (!colonSp(++offset, node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(LexemeEnum.COLON_SP.toString()));
-        ++offset;
-        if (!funcValue(node.getNode()))
-            throw new ParseException(generateTokenNotFoundException(ComponentsEnum.FUNC_VALUE.toString()));
-        return true;
-    }
-
-    private boolean var(int offset, Node node) throws ParseException {
-        return isNeededToken(LexemeEnum.VAR, offset, node);
-    }
-
-    private boolean commaSp(int offset, Node node) throws ParseException {
-        return isNeededToken(LexemeEnum.COMMA_SP, offset, node);
-    }
-
-    private boolean colonSp(int offset, Node node) throws ParseException {
-        return isNeededToken(LexemeEnum.COLON_SP, offset, node);
-    }
-
-    private boolean number(int offset, Node node) throws ParseException {
-        try {
-            return isNeededToken(LexemeEnum.INTEGER, offset, node) || isNeededToken(LexemeEnum.REAL, offset, node);
-        } catch (ParseException e) {
-            throw new ParseException(generateEndOfFileException(ComponentsEnum.NUMBER.toString()));
-        }
-    }
-
-    private boolean type(int offset, Node node) throws ParseException {
-        try {
-            return isNeededToken(LexemeEnum.INT_TP, offset, node) || isNeededToken(LexemeEnum.DOUBLE_TP, offset, node);
-        } catch (ParseException e) {
-            throw new ParseException(generateEndOfFileException(ComponentsEnum.TYPE.toString()));
-        }
-    }
-
-    private boolean assignOp(int offset, Node node) throws ParseException {
-        return isNeededToken(LexemeEnum.ASSIGN_OP, offset, node) || isNeededToken(LexemeEnum.SUB_ASSIGN_OP, offset, node)
-                || isNeededToken(LexemeEnum.SUM_ASSIGN_OP, offset, node) || isNeededToken(LexemeEnum.MUL_ASSIGN_OP, offset, node)
-                || isNeededToken(LexemeEnum.DIV_ASSIGN_OP, offset, node);
-    }
-
-    private boolean funcKw(int offset, Node node) throws ParseException {
-        return isNeededToken(LexemeEnum.FUNC_KW, offset, node);
-    }
-
-    private boolean whileKw(int offset, Node node) throws ParseException {
-        return isNeededToken(LexemeEnum.WHILE_KW, offset, node);
-    }
-
-    private boolean printKw(int offset, Node node) throws ParseException {
-        return isNeededToken(LexemeEnum.PRINT_KW, offset, node);
-    }
-
-    private boolean breakKw(int offset, Node node) throws ParseException {
-        return isNeededToken(LexemeEnum.BREAK_KW, offset, node);
-    }
-
-    private boolean continueKw(int offset, Node node) throws ParseException {
-        return isNeededToken(LexemeEnum.CONTINUE_KW, offset, node);
-    }
-
-    private boolean returnKw(int offset, Node node) throws ParseException {
-        return isNeededToken(LexemeEnum.RETURN_KW, offset, node);
-    }
-
-    private boolean ifKw(int offset, Node node) throws ParseException {
-        return isNeededToken(LexemeEnum.IF_KW, offset, node);
-    }
-
-    private boolean elseKw(int offset, Node node) throws ParseException {
-        return isNeededToken(LexemeEnum.ELSE_KW, offset, node);
-    }
-
-    private boolean forKw(int offset, Node node) throws ParseException {
-        return isNeededToken(LexemeEnum.FOR_KW, offset, node);
-    }
-
-    private boolean doKw(int offset, Node node) throws ParseException {
-        return isNeededToken(LexemeEnum.DO_KW, offset, node);
-    }
-
-
-    private boolean unaryOp(int offset, Node node) throws ParseException {
-        try {
-            return isNeededToken(LexemeEnum.INC_OP, offset, node) || isNeededToken(LexemeEnum.DEC_OP, offset, node)
-                    || isNeededToken(LexemeEnum.NOT_OP, offset, node);
-        } catch (ParseException e) {
-            throw new ParseException(generateEndOfFileException(ComponentsEnum.UNARY_OP.toString()));
-        }
-    }
-
-    private boolean classKw(int offset, Node node) throws ParseException {
-        try {
-            return isNeededToken(LexemeEnum.LIST_KW, offset, node) || isNeededToken(LexemeEnum.HASH_SET_KW, offset, node);
-        } catch (ParseException e) {
-            throw new ParseException(generateEndOfFileException(ComponentsEnum.CLASS_KW.toString()));
-        }
-    }
-
-    private boolean binaryOp(int offset, Node node) throws ParseException {
-        try {
-            return isNeededToken(LexemeEnum.SUB_OP, offset, node) || isNeededToken(LexemeEnum.DIV_OP, offset, node)
-                    || isNeededToken(LexemeEnum.MUL_OP, offset, node) || isNeededToken(LexemeEnum.SUM_OP, offset, node)
-                    || isNeededToken(LexemeEnum.AND_OP, offset, node) || isNeededToken(LexemeEnum.OR_OP, offset, node)
-                    || isNeededToken(LexemeEnum.GREATER_EQUAL_OP, offset, node) || isNeededToken(LexemeEnum.LESS_EQUAL_OP, offset, node)
-                    || isNeededToken(LexemeEnum.GREATER_OP, offset, node) || isNeededToken(LexemeEnum.LESS_OP, offset, node)
-                    || isNeededToken(LexemeEnum.EQUAL_OP, offset, node) || isNeededToken(LexemeEnum.NOT_EQUAL_OP, offset, node);
-        } catch (ParseException e) {
-            throw new ParseException(generateEndOfFileException(ComponentsEnum.BINARY_OP.toString()));
-        }
-    }
-
-    private boolean semicolonSp(int offset, Node node) throws ParseException {
-        return isNeededToken(LexemeEnum.SEMICOLON_SP, offset, node);
-    }
-
-    private boolean lessOp(int offset, Node node) throws ParseException {
-        return isNeededToken(LexemeEnum.LESS_OP, offset, node);
-    }
-
-    private boolean greaterOp(int offset, Node node) throws ParseException {
-        return isNeededToken(LexemeEnum.GREATER_OP, offset, node);
-    }
-
-
-    private boolean leftParentheses(int offset, Node node) throws ParseException {
-        return isNeededToken(LexemeEnum.LEFT_PARENTHESES, offset, node);
-    }
-
-    private boolean rightParentheses(int offset, Node node) throws ParseException {
-        return isNeededToken(LexemeEnum.RIGHT_PARENTHESES, offset, node);
-    }
-
-    private boolean leftBraces(int offset, Node node) throws ParseException {
-        return isNeededToken(LexemeEnum.LEFT_BRACES, offset, node);
-    }
-
-    private boolean rightBraces(int offset, Node node) throws ParseException {
-        return isNeededToken(LexemeEnum.RIGHT_BRACES, offset, node);
-    }
-
-    private boolean isNeededToken(LexemeEnum lexeme, int offset, Node node) throws ParseException {
-        try {
-            Token token = getValidToken(offset);
-            if (token.getType().equals(lexeme)) {
-                node.addNode(new Node(token, lexeme));
-                return true;
             } else {
-                return false;
+                return true;
             }
-        } catch (ParseException e) {
-            throw new ParseException(generateEndOfFileException(lexeme.toString()));
+
+        } else {
+            currentToken--;
+        }
+
+        if (getTokenLexeme() == Lexeme.DIGIT) {
+            reversePolishNotation.get(currentFunction).add(getLastTokenValue());
+            return true;
+        } else {
+            currentToken--;
+        }
+
+        String last = getLastTokenValue();
+        if (getTokenLexeme() == Lexeme.R_RB && last.equals("(")) {
+            currentToken--;
+            return true;
+        } else {
+            currentToken--;
+        }
+
+        return bkt_value();
+    }
+
+    private boolean bkt_value() {
+        boolean bkt = false;
+        int oldPos = currentToken;
+
+        if (getTokenLexeme() == Lexeme.L_RB) {
+            stack.push(getLastTokenValue());
+            if (stmt()) {
+                if (getTokenLexeme() == Lexeme.R_RB) {
+                    while (!stack.peek().equals("(")) {
+                        reversePolishNotation.get(currentFunction).add(stack.pop());
+                    }
+                    stack.pop();
+                    bkt = true;
+                }
+            }
+        }
+        currentToken = bkt ? currentToken : oldPos;
+        return bkt;
+    }
+
+
+    private boolean figure_bkt() {
+        boolean bkt = false;
+        if (init() || assign() || set_stmt()) {
+            bkt = true;
+        }
+        return bkt;
+    }
+
+
+    private Lexeme getTokenLexeme() {
+        try {
+            return tokens.get(currentToken++).getLexeme();
+        } catch (IndexOutOfBoundsException ex) {
+            System.err.println("Error: Lexer.Lexer.Lexeme expected");
+            System.exit(2);
+        }
+        return null;
+    }
+
+
+    private String getLastTokenValue() {
+        return tokens.get(currentToken - 1).getValue();
+    }
+
+    private int getPriority(String str) {
+        switch (str) {
+            case "+":
+            case "-":
+                return 1;
+            case "*":
+            case "^":
+            case "/":
+            case "%":
+                return 2;
+            case "=":
+            case "(":
+                return 0;
+            default:
+                System.err.println("Error: in " + str);
+                System.exit(5);
+                return 0;
         }
     }
 }
